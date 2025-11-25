@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Naps-Man 2: Uncle Marc's Revenge</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body {
+            background-color: #111;
+            color: white;
+            font-family: 'Press Start 2P', cursive;
+            overflow: hidden;
+            touch-action: none;
+        }
+
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        canvas {
+            background-color: #000;
+            border: 4px solid #CC2222; 
+            box-shadow: 0 0 20px rgba(204, 34, 34, 0.4);
+            max-width: 100%;
+            max-height: 80vh;
+        }
+
+        #ui-layer {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 5px;
+            box-sizing: border-box;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        .score-val { color: #FFF; }
+        .hud-label { color: #FFB8AE; margin-right: 5px; }
+
+        #message-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            text-align: center;
+        }
+
+        .hidden { display: none !important; }
+
+        button {
+            background: #FFCC00;
+            color: #000;
+            border: none;
+            padding: 15px 30px;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 20px;
+            text-transform: uppercase;
+        }
+        button:hover { background: #FFF; }
+        
+        button:disabled {
+            background: #555;
+            color: #888;
+            cursor: not-allowed;
+        }
+
+        #loading-text {
+            color: #4ade80;
+            font-size: 12px;
+            margin-top: 20px;
+            min-height: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="ui-layer">
+        <div><span class="hud-label">SC:</span><span id="score" class="score-val">0</span></div>
+        <div><span class="hud-label">LVL:</span><span id="level-display" class="score-val">1</span></div>
+        <div><span class="hud-label">LIVES:</span><span id="lives-display" class="score-val">3</span></div>
+        <div style="color: #FF0000"><span class="hud-label">HI:</span><span id="highscore" class="score-val">0</span></div>
+    </div>
+    
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="message-overlay">
+        <h1 id="title-text" style="color: #FF0000; text-shadow: 4px 4px #550000; font-size: 30px; margin-bottom: 20px; line-height: 1.5;">NAPS-MAN 2:<br>UNCLE MARC'S REVENGE</h1>
+        <p id="sub-text" style="line-height: 1.5; margin-bottom: 10px; color: #ccc;">3 Levels. 3 Lives.<br>One Uncle.</p>
+        
+        <div id="loading-text">DEV MODE: ASSETS OPTIONAL</div>
+        <button id="start-btn">INSERT COIN</button>
+    </div>
+</div>
+
+<script>
+    /**
+     * NAPS-MAN 2: UNCLE MARC'S REVENGE
+     * Updated Asset Paths based on User List
+     */
+
+    // --- Configuration ---
+    const TILE_COUNT_X = 19;
+    const TILE_COUNT_Y = 20; 
+    let TILE_SIZE = 24; 
+    const MAX_LEVELS = 3;
+    const MAX_LIVES = 3;
+    
+    // Base Speeds
+    const BASE_PACMAN_SPEED = 0.099; 
+    const BASE_GHOST_SPEED = 0.081;  
+    const GHOST_FRIGHTENED_SPEED = 0.054; 
+    
+    const ANIMATION_RATE_HZ = 2; 
+    const ANIMATION_INTERVAL_MS = 1000 / (ANIMATION_RATE_HZ * 2);
+
+    // --- Assets Management ---
+    const ASSET_PATHS = {
+        playerOpen: 'assets/face_open.JPG',     
+        playerClosed: 'assets/face_closed.jpg', 
+        powerPellet: 'assets/goat.jpg',           
+        
+        // Level Specific Ghosts
+        ghost1: 'assets/willraz.PNG',  
+        ghost2: 'assets/martyg.PNG',  
+        ghost3: 'assets/slimemarc.PNG', // Assumed extension based on others
+        
+        // Audio
+        music1: 'assets/sailor.mp3', 
+        music2: 'assets/makinlove.mp3', // Assumed extension
+        music3: 'assets/napa2x.mp3',    // Assumed extension
+        frightened: 'assets/emergency.mp3'
+    };
+
+    const imgOpen = new Image();
+    const imgClosed = new Image();
+    const imgGhost1 = new Image(); 
+    const imgGhost2 = new Image(); 
+    const imgGhost3 = new Image(); 
+    const imgPowerPellet = new Image();
+    
+    const bgMusic = new Audio();
+    bgMusic.loop = true;
+    
+    const frightenedMusic = new Audio();
+    frightenedMusic.loop = true;
+
+    // Disabled strict asset loading for testing
+    function assetLoaded() { console.log("Asset loaded"); }
+    function assetError(e) { console.warn("Asset failed to load (using fallback):", e.target.src); }
+
+    imgOpen.onload = assetLoaded; imgOpen.onerror = assetError;
+    imgOpen.src = ASSET_PATHS.playerOpen;
+
+    imgClosed.onload = assetLoaded; imgClosed.onerror = assetError;
+    imgClosed.src = ASSET_PATHS.playerClosed;
+
+    imgGhost1.onload = assetLoaded; imgGhost1.onerror = assetError;
+    imgGhost1.src = ASSET_PATHS.ghost1;
+
+    imgGhost2.onload = assetLoaded; imgGhost2.onerror = assetError;
+    imgGhost2.src = ASSET_PATHS.ghost2;
+
+    imgGhost3.onload = assetLoaded; imgGhost3.onerror = assetError;
+    imgGhost3.src = ASSET_PATHS.ghost3;
+    
+    imgPowerPellet.onload = assetLoaded; imgPowerPellet.onerror = assetError;
+    imgPowerPellet.src = ASSET_PATHS.powerPellet;
+
+    frightenedMusic.src = ASSET_PATHS.frightened;
+    
+    // --- Game State ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let gameRunning = false;
+    let isPaused = false; 
+    let score = 0;
+    let lives = MAX_LIVES;
+    let currentLevel = 1;
+    let isFrightenedMode = false;
+
+    let highScore = localStorage.getItem('napsman2_highscore') || 0;
+    document.getElementById('highscore').innerText = highScore;
+
+    // 0: Wall, 1: Dot, 2: Empty, 3: Power, 4: Gate
+    const mapLayout = [
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+        [0,3,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,3,0], 
+        [0,1,0,0,1,0,0,0,1,0,1,0,0,0,1,0,0,1,0],
+        [0,1,0,0,1,0,0,0,1,0,1,0,0,0,1,0,0,1,0],
+        [0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0],
+        [0,1,0,0,1,0,1,0,0,0,0,0,1,0,1,0,0,1,0],
+        [0,1,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1,1,0],
+        [0,0,0,0,1,0,0,0,2,0,2,0,0,0,1,0,0,0,0],
+        [2,2,2,0,1,0,2,2,2,2,2,2,2,0,1,0,2,2,2], 
+        [0,0,0,0,1,0,2,0,0,4,0,0,2,0,1,0,0,0,0], 
+        [2,2,2,2,1,2,2,0,2,2,2,0,2,2,1,2,2,2,2], 
+        [0,0,0,0,1,0,2,0,0,0,0,0,2,0,1,0,0,0,0],
+        [2,2,2,0,1,0,2,2,2,2,2,2,2,0,1,0,2,2,2], 
+        [0,0,0,0,1,0,1,0,0,0,0,0,1,0,0,0,0,0,0],
+        [0,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,0],
+        [0,1,0,0,1,0,0,0,1,0,1,0,0,0,1,0,0,1,0],
+        [0,3,1,0,1,1,1,1,1,2,1,1,1,1,1,0,1,3,0], 
+        [0,0,1,0,1,0,1,0,0,0,0,0,1,0,1,0,1,0,0],
+        [0,1,1,1,1,0,1,1,1,0,1,1,1,0,1,1,1,1,0],
+        [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+    ];
+
+    let grid = []; 
+
+    // --- Classes ---
+
+    class Entity {
+        constructor(x, y) {
+            this.x = x; 
+            this.y = y;
+            this.dir = {x: 0, y: 0}; 
+            this.nextDir = {x: 0, y: 0}; 
+            this.speed = 0.1;
+            this.radius = 0.4;
+        }
+
+        canMoveTo(tx, ty) {
+            if (ty < 0 || ty >= TILE_COUNT_Y) return false;
+            const wrappedX = (tx + TILE_COUNT_X) % TILE_COUNT_X;
+            const tile = grid[ty][wrappedX];
+            return tile !== 0 && tile !== 4; 
+        }
+    }
+
+    class Pacman extends Entity {
+        constructor(x, y) {
+            super(x, y);
+            this.speed = BASE_PACMAN_SPEED * (1 + (currentLevel * 0.05));
+            this.angle = 0;
+            this.lastImageSwitch = 0;
+            this.isMouthOpen = false;
+        }
+        
+        update(dt) {
+            const cx = Math.floor(this.x) + 0.5;
+            const cy = Math.floor(this.y) + 0.5;
+            const dist = Math.sqrt((this.x - cx)**2 + (this.y - cy)**2);
+            
+            if (dist < this.speed) {
+                if ((this.nextDir.x !== 0 || this.nextDir.y !== 0)) {
+                     const nextTx = Math.floor(this.x) + this.nextDir.x;
+                     const nextTy = Math.floor(this.y) + this.nextDir.y;
+                     if (this.canMoveTo(nextTx, nextTy)) {
+                        this.x = cx;
+                        this.y = cy;
+                        this.dir = { ...this.nextDir };
+                        this.nextDir = {x: 0, y: 0};
+                     }
+                }
+                const nextTx = Math.floor(this.x) + this.dir.x;
+                const nextTy = Math.floor(this.y) + this.dir.y;
+                if (!this.canMoveTo(nextTx, nextTy)) {
+                    this.x = cx;
+                    this.y = cy;
+                    this.dir = {x: 0, y: 0};
+                }
+            }
+
+            this.x += this.dir.x * this.speed;
+            this.y += this.dir.y * this.speed;
+
+            if (this.x < 0) this.x = TILE_COUNT_X - 1;
+            if (this.x >= TILE_COUNT_X) this.x = 0;
+
+            if (this.dir.x === 1) this.angle = 0;
+            if (this.dir.x === -1) this.angle = Math.PI;
+            if (this.dir.y === -1) this.angle = -Math.PI / 2;
+            if (this.dir.y === 1) this.angle = Math.PI / 2;
+
+            // Eat Logic
+            const tx = Math.floor(this.x); 
+            const ty = Math.floor(this.y);
+            
+            if(ty >= 0 && ty < TILE_COUNT_Y && tx >= 0 && tx < TILE_COUNT_X) {
+                const cxDot = tx + 0.5;
+                const cyDot = ty + 0.5;
+                const d = Math.sqrt((this.x - cxDot)**2 + (this.y - cyDot)**2);
+                
+                if (d < 0.4) {
+                    const tile = grid[ty][tx];
+                    if (tile === 1) {
+                        grid[ty][tx] = 2; 
+                        score += 10;
+                        document.getElementById('score').innerText = score;
+                        checkLevelComplete();
+                    }
+                    else if (tile === 3) {
+                        grid[ty][tx] = 2;
+                        score += 50;
+                        document.getElementById('score').innerText = score;
+                        activateFrightenedMode();
+                        checkLevelComplete();
+                    }
+                }
+            }
+
+            const now = Date.now();
+            if (now - this.lastImageSwitch > ANIMATION_INTERVAL_MS) {
+                this.isMouthOpen = !this.isMouthOpen;
+                this.lastImageSwitch = now;
+            }
+        }
+
+        draw(ctx) {
+            const px = this.x * TILE_SIZE; 
+            const py = this.y * TILE_SIZE;
+
+            ctx.save();
+            ctx.translate(px, py); 
+            ctx.rotate(this.angle);
+
+            const size = TILE_SIZE * 1.6; 
+            const img = this.isMouthOpen ? imgOpen : imgClosed;
+            
+            if (img.complete && img.naturalHeight !== 0) {
+                ctx.beginPath();
+                ctx.arc(0, 0, size/2 - 2, 0, Math.PI * 2);
+                ctx.clip(); 
+                ctx.drawImage(img, -size/2, -size/2, size, size);
+            } else {
+                ctx.fillStyle = "#FFCC00";
+                ctx.beginPath();
+                ctx.arc(0, 0, size/3, 0.2 * Math.PI, 1.8 * Math.PI);
+                ctx.lineTo(0,0);
+                ctx.fill();
+            }
+            
+            ctx.restore();
+        }
+    }
+
+    class Ghost extends Entity {
+        constructor(x, y, color, startDir) {
+            const cx = Math.floor(x) + 0.5;
+            const cy = Math.floor(y) + 0.5;
+            super(cx, cy);
+            this.startX = cx;
+            this.startY = cy;
+            this.startDir = startDir;
+            
+            this.color = color;
+            this.normalSpeed = BASE_GHOST_SPEED * (1 + (currentLevel * 0.05));
+            this.speed = this.normalSpeed;
+            this.dir = startDir || {x: 1, y: 0};
+            this._decisionCooldown = 0;
+            
+            this.isFrightened = false;
+            this.frightenedTimer = 0;
+        }
+        
+        reset() {
+            this.x = this.startX;
+            this.y = this.startY;
+            this.dir = this.startDir;
+            this.isFrightened = false;
+            this.speed = this.normalSpeed;
+        }
+
+        makeFrightened() {
+            this.isFrightened = true;
+            this.frightenedTimer = 600; 
+            this.speed = GHOST_FRIGHTENED_SPEED;
+            this.dir.x *= -1;
+            this.dir.y *= -1;
+        }
+
+        canMoveTo(tx, ty) {
+            if (tx < 0 || tx >= TILE_COUNT_X || ty < 0 || ty >= TILE_COUNT_Y) return false;
+            const wrappedX = (tx + TILE_COUNT_X) % TILE_COUNT_X;
+            const tile = grid[ty][wrappedX];
+            return tile !== 0; 
+        }
+
+        move() {
+            if (this.isFrightened) {
+                this.frightenedTimer--;
+                if (this.frightenedTimer <= 0) {
+                    this.isFrightened = false;
+                    this.speed = this.normalSpeed;
+                    this.x = Math.round(this.x * 2) / 2;
+                    this.y = Math.round(this.y * 2) / 2;
+                }
+            }
+
+            const centerX = Math.floor(this.x) + 0.5;
+            const centerY = Math.floor(this.y) + 0.5;
+            const dist = Math.sqrt((this.x - centerX)**2 + (this.y - centerY)**2);
+            const SNAP_THRESHOLD = Math.max(0.06, this.speed * 0.7); 
+
+            if (this._decisionCooldown > 0) this._decisionCooldown--;
+
+            if (dist < SNAP_THRESHOLD && this._decisionCooldown === 0) {
+                this.x = centerX;
+                this.y = centerY;
+
+                const dirs = [{x:0, y:-1}, {x:0, y:1}, {x:-1, y:0}, {x:1, y:0}];
+                const txBase = Math.floor(this.x);
+                const tyBase = Math.floor(this.y);
+
+                const validDirs = dirs.filter(d => this.canMoveTo(txBase + d.x, tyBase + d.y));
+
+                if (validDirs.length > 0) {
+                    const nonReverse = validDirs.filter(d => !(d.x === -this.dir.x && d.y === -this.dir.y));
+                    if (nonReverse.length > 0) {
+                        this.dir = nonReverse[Math.floor(Math.random() * nonReverse.length)];
+                    } else {
+                        this.dir = validDirs[Math.floor(Math.random() * validDirs.length)];
+                    }
+                    this._decisionCooldown = 6; 
+                } else {
+                    this._decisionCooldown = 6;
+                }
+            }
+
+            this.x += this.dir.x * this.speed;
+            this.y += this.dir.y * this.speed;
+
+            if (this.x < 0) this.x = TILE_COUNT_X - 1;
+            if (this.x >= TILE_COUNT_X) this.x = 0;
+        }
+
+        draw(ctx) {
+            const px = this.x * TILE_SIZE; 
+            const py = this.y * TILE_SIZE;
+            
+            const size = TILE_SIZE * 1.5; 
+            ctx.save();
+            ctx.translate(px, py);
+            
+            let activeGhostImg = imgGhost1;
+            if (currentLevel === 2) activeGhostImg = imgGhost2;
+            if (currentLevel === 3) activeGhostImg = imgGhost3;
+
+            ctx.beginPath();
+            ctx.arc(0, 0, size/2, 0, Math.PI * 2);
+            
+            if (this.isFrightened) {
+                ctx.strokeStyle = "#0000FF";
+                ctx.fillStyle = "#0000AA";
+                if (this.frightenedTimer < 120 && Math.floor(Date.now() / 200) % 2 === 0) {
+                    ctx.fillStyle = "#FFFFFF";
+                    ctx.strokeStyle = "#FFFFFF";
+                }
+            } else {
+                ctx.strokeStyle = this.color;
+                ctx.fillStyle = this.color;
+            }
+            
+            if (activeGhostImg.complete && activeGhostImg.naturalHeight !== 0 && !this.isFrightened) {
+                ctx.lineWidth = 3;
+                ctx.stroke(); 
+                ctx.beginPath();
+                ctx.arc(0, 0, size/2 - 1, 0, Math.PI * 2);
+                ctx.clip();
+                ctx.drawImage(activeGhostImg, -size/2, -size/2, size, size);
+            } else {
+                ctx.fill();
+                ctx.fillStyle = "white";
+                ctx.beginPath();
+                ctx.arc(-4, -2, 3, 0, Math.PI*2);
+                ctx.arc(4, -2, 3, 0, Math.PI*2);
+                ctx.fill();
+                ctx.fillStyle = "black";
+                ctx.beginPath();
+                ctx.arc(-4, -2, 1, 0, Math.PI*2);
+                ctx.arc(4, -2, 1, 0, Math.PI*2);
+                ctx.fill();
+                
+                if (this.isFrightened) {
+                    ctx.strokeStyle = "pink";
+                    ctx.beginPath();
+                    ctx.moveTo(-6, 6);
+                    ctx.lineTo(-3, 2);
+                    ctx.lineTo(0, 6);
+                    ctx.lineTo(3, 2);
+                    ctx.lineTo(6, 6);
+                    ctx.stroke();
+                }
+            }
+            ctx.restore();
+        }
+    }
+
+    // --- Instantiation ---
+    let pacman;
+    let ghosts = [];
+
+    function resetEntities() {
+        pacman = new Pacman(9.5, 16.5); 
+        ghosts = [
+            new Ghost(9, 10, "red", {x:0, y:-1}),
+            new Ghost(8, 10, "pink", {x:0, y:-1}),
+            new Ghost(10, 10, "cyan", {x:0, y:-1}),
+            new Ghost(9, 10, "orange", {x:0, y:1})
+        ];
+    }
+
+    // --- Audio Control ---
+    function activateFrightenedMode() {
+        ghosts.forEach(g => g.makeFrightened());
+        
+        // Switch Music
+        if (!isFrightenedMode) {
+            isFrightenedMode = true;
+            bgMusic.pause();
+            frightenedMusic.currentTime = 0;
+            frightenedMusic.play().catch(e => console.log("Audio Error:", e));
+        }
+    }
+
+    function checkFrightenedMode() {
+        // If mode is active but no ghosts are frightened, revert music
+        if (isFrightenedMode) {
+            const anyFrightened = ghosts.some(g => g.isFrightened);
+            if (!anyFrightened) {
+                isFrightenedMode = false;
+                frightenedMusic.pause();
+                if (gameRunning && !isPaused) {
+                    bgMusic.play().catch(e => console.log("Audio Error:", e));
+                }
+            }
+        }
+    }
+
+    function startLevel(lvl) {
+        currentLevel = lvl;
+        isFrightenedMode = false;
+        frightenedMusic.pause();
+        
+        bgMusic.pause();
+        if (currentLevel === 1) bgMusic.src = ASSET_PATHS.music1;
+        else if (currentLevel === 2) bgMusic.src = ASSET_PATHS.music2;
+        else if (currentLevel === 3) bgMusic.src = ASSET_PATHS.music3;
+        bgMusic.load();
+
+        grid = mapLayout.map(row => [...row]);
+        resetEntities();
+        
+        document.getElementById('level-display').innerText = currentLevel;
+        document.getElementById('lives-display').innerText = lives;
+        
+        const overlay = document.getElementById('message-overlay');
+        const title = document.getElementById('title-text');
+        const sub = document.getElementById('sub-text');
+        const btn = document.getElementById('start-btn');
+        
+        if (currentLevel > 1) {
+             gameRunning = false;
+             isPaused = true;
+             overlay.classList.remove('hidden');
+             title.innerText = `LEVEL ${currentLevel}`;
+             title.style.color = "#FFF";
+             sub.innerText = "GET READY!";
+             btn.innerText = "START LEVEL";
+        }
+    }
+
+    function startGame() {
+        score = 0;
+        lives = MAX_LIVES;
+        document.getElementById('score').innerText = score;
+        document.getElementById('lives-display').innerText = lives;
+        
+        startLevel(1);
+        
+        gameRunning = true;
+        isPaused = false;
+        bgMusic.currentTime = 0;
+        bgMusic.play().catch(e => console.log("Audio Error:", e));
+        
+        document.getElementById('message-overlay').classList.add('hidden');
+        loop();
+    }
+
+    function handleDeath() {
+        lives--;
+        document.getElementById('lives-display').innerText = lives;
+        
+        if (lives <= 0) {
+            gameOver("GAME OVER");
+        } else {
+            isPaused = true;
+            bgMusic.pause();
+            frightenedMusic.pause();
+            setTimeout(() => {
+                resetEntities();
+                isPaused = false;
+                // Resume appropriate music
+                if (isFrightenedMode) frightenedMusic.play();
+                else bgMusic.play();
+            }, 1500);
+        }
+    }
+
+    function checkLevelComplete() {
+        let dots = 0;
+        for(let row of grid) {
+            for(let tile of row) {
+                if(tile === 1 || tile === 3) dots++;
+            }
+        }
+        
+        if(dots === 0) {
+            if (currentLevel < MAX_LEVELS) {
+                isPaused = true;
+                bgMusic.pause();
+                frightenedMusic.pause();
+                setTimeout(() => {
+                    startLevel(currentLevel + 1);
+                }, 1000);
+            } else {
+                gameOver("TOTAL VICTORY!");
+            }
+        }
+    }
+
+    function gameOver(msg) {
+        gameRunning = false;
+        bgMusic.pause();
+        frightenedMusic.pause();
+
+        if(score > highScore) {
+            highScore = score;
+            localStorage.setItem('napsman2_highscore', highScore);
+            document.getElementById('highscore').innerText = highScore;
+        }
+        
+        const overlay = document.getElementById('message-overlay');
+        const title = document.getElementById('title-text');
+        const sub = document.getElementById('sub-text');
+        const btn = document.getElementById('start-btn');
+        
+        overlay.classList.remove('hidden');
+        title.innerText = msg;
+        title.style.color = msg === "GAME OVER" ? "Red" : "Gold";
+        sub.innerText = `Final Score: ${score}\nLevels Cleared: ${currentLevel-1}`;
+        btn.innerText = "PLAY AGAIN";
+    }
+
+    function loop() {
+        if (!gameRunning) return;
+        requestAnimationFrame(loop);
+        
+        if (isPaused) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        checkFrightenedMode();
+
+        // Update
+        if (pacman) pacman.update();
+        if (ghosts) ghosts.forEach(g => {
+            g.move();
+            
+            // Check Collision
+            const dx = g.x - pacman.x;
+            const dy = g.y - pacman.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            
+            if(dist < 0.6) {
+                if (g.isFrightened) {
+                    score += 200;
+                    document.getElementById('score').innerText = score;
+                    g.reset();
+                } else {
+                    handleDeath();
+                }
+            }
+        });
+
+        // Draw Map
+        const renderRows = Math.min(TILE_COUNT_Y, grid.length);
+        
+        for (let y = 0; y < renderRows; y++) {
+            for (let x = 0; x < TILE_COUNT_X; x++) {
+                const tile = grid[y][x];
+                const px = x * TILE_SIZE;
+                const py = y * TILE_SIZE;
+
+                if (tile === 0) {
+                    ctx.fillStyle = "#1919A6"; 
+                    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    ctx.fillStyle = "black"; 
+                    ctx.fillRect(px + 4, py + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                } else if (tile === 1) {
+                    ctx.fillStyle = "#ffb8ae";
+                    ctx.fillRect(px + TILE_SIZE/2 - 2, py + TILE_SIZE/2 - 2, 4, 4);
+                } else if (tile === 3) {
+                    // Power Pellet (Goat)
+                    if (imgPowerPellet.complete && imgPowerPellet.naturalHeight !== 0) {
+                        ctx.drawImage(imgPowerPellet, px, py, TILE_SIZE, TILE_SIZE);
+                    } else {
+                        ctx.fillStyle = "#ffb8ae";
+                        ctx.beginPath();
+                        ctx.arc(px + TILE_SIZE/2, py + TILE_SIZE/2, 8, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                } else if (tile === 4) {
+                    ctx.fillStyle = "pink";
+                    ctx.fillRect(px, py + TILE_SIZE/2 - 2, TILE_SIZE, 4);
+                }
+            }
+        }
+
+        // Draw Entities
+        if (pacman) pacman.draw(ctx);
+        if (ghosts) ghosts.forEach(g => g.draw(ctx));
+    }
+
+    // --- Input & Resize ---
+
+    function handleInput(key) {
+        if(!gameRunning || !pacman) return;
+        switch(key) {
+            case 'ArrowUp': case 'w': pacman.nextDir = {x: 0, y: -1}; break;
+            case 'ArrowDown': case 's': pacman.nextDir = {x: 0, y: 1}; break;
+            case 'ArrowLeft': case 'a': pacman.nextDir = {x: -1, y: 0}; break;
+            case 'ArrowRight': case 'd': pacman.nextDir = {x: 1, y: 0}; break;
+        }
+    }
+
+    window.addEventListener('keydown', e => handleInput(e.key));
+
+    // Touch Handling
+    let touchStartX = 0;
+    let touchStartY = 0;
+    
+    document.addEventListener('touchstart', e => {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+    }, {passive: false});
+
+    document.addEventListener('touchmove', e => {
+        if(gameRunning) e.preventDefault(); 
+    }, {passive: false});
+
+    document.addEventListener('touchend', e => {
+        if(!gameRunning) return;
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+        
+        if(Math.abs(dx) > Math.abs(dy)) {
+            if(Math.abs(dx) > 30) handleInput(dx > 0 ? 'ArrowRight' : 'ArrowLeft');
+        } else {
+            if(Math.abs(dy) > 30) handleInput(dy > 0 ? 'ArrowDown' : 'ArrowUp');
+        }
+    });
+
+    function resize() {
+        const aspect = TILE_COUNT_X / TILE_COUNT_Y;
+        const maxW = window.innerWidth - 20;
+        const maxH = window.innerHeight - 100; 
+        
+        let w = maxW;
+        let h = w / aspect;
+
+        if (h > maxH) {
+            h = maxH;
+            w = h * aspect;
+        }
+
+        canvas.width = w;
+        canvas.height = h;
+        
+        TILE_SIZE = w / TILE_COUNT_X;
+
+        if(!gameRunning) {
+             ctx.fillStyle = "black";
+             ctx.fillRect(0,0,canvas.width, canvas.height);
+        }
+    }
+
+    window.addEventListener('resize', resize);
+
+    document.getElementById('start-btn').addEventListener('click', (e) => {
+        const btnText = e.target.innerText;
+        if (btnText === "START LEVEL") {
+             document.getElementById('message-overlay').classList.add('hidden');
+             gameRunning = true;
+             isPaused = false;
+             bgMusic.play().catch(e => console.log("Audio Error:", e));
+             loop();
+        } else {
+            startGame();
+        }
+    });
+
+    resize();
+
+</script>
+</body>
+</html>
