@@ -115,7 +115,7 @@
 <script>
     /**
      * NAPS-MAN 2: UNCLE MARC'S REVENGE
-     * Updated Asset Paths based on User List
+     * Changes: Removed emergency music, slowed down Lvl 1 & 2
      */
 
     // --- Configuration ---
@@ -146,9 +146,8 @@
         
         // Audio
         music1: 'assets/sailor.mp3', 
-        music2: 'assets/makinlove.mp3', // Assumed extension
-        music3: 'assets/napa2x.mp3',    // Assumed extension
-        frightened: 'assets/emergency.mp3'
+        music2: 'assets/makinlove.mp3', 
+        music3: 'assets/napa2x.mp3'
     };
 
     const imgOpen = new Image();
@@ -160,9 +159,6 @@
     
     const bgMusic = new Audio();
     bgMusic.loop = true;
-    
-    const frightenedMusic = new Audio();
-    frightenedMusic.loop = true;
 
     // Disabled strict asset loading for testing
     function assetLoaded() { console.log("Asset loaded"); }
@@ -185,8 +181,6 @@
     
     imgPowerPellet.onload = assetLoaded; imgPowerPellet.onerror = assetError;
     imgPowerPellet.src = ASSET_PATHS.powerPellet;
-
-    frightenedMusic.src = ASSET_PATHS.frightened;
     
     // --- Game State ---
     const canvas = document.getElementById('gameCanvas');
@@ -197,7 +191,6 @@
     let score = 0;
     let lives = MAX_LIVES;
     let currentLevel = 1;
-    let isFrightenedMode = false;
 
     let highScore = localStorage.getItem('napsman2_highscore') || 0;
     document.getElementById('highscore').innerText = highScore;
@@ -251,7 +244,15 @@
     class Pacman extends Entity {
         constructor(x, y) {
             super(x, y);
-            this.speed = BASE_PACMAN_SPEED * (1 + (currentLevel * 0.05));
+            
+            // Speed Logic
+            let speedFactor = 1 + (currentLevel * 0.05);
+            // Decrease Levels 1 and 2 by an additional 10%
+            if (currentLevel < 3) {
+                speedFactor *= 0.9;
+            }
+            
+            this.speed = BASE_PACMAN_SPEED * speedFactor;
             this.angle = 0;
             this.lastImageSwitch = 0;
             this.isMouthOpen = false;
@@ -314,7 +315,7 @@
                         grid[ty][tx] = 2;
                         score += 50;
                         document.getElementById('score').innerText = score;
-                        activateFrightenedMode();
+                        ghosts.forEach(g => g.makeFrightened());
                         checkLevelComplete();
                     }
                 }
@@ -365,7 +366,15 @@
             this.startDir = startDir;
             
             this.color = color;
-            this.normalSpeed = BASE_GHOST_SPEED * (1 + (currentLevel * 0.05));
+            
+            // Speed Logic
+            let speedFactor = 1 + (currentLevel * 0.05);
+            // Decrease Levels 1 and 2 by an additional 10%
+            if (currentLevel < 3) {
+                speedFactor *= 0.9;
+            }
+            
+            this.normalSpeed = BASE_GHOST_SPEED * speedFactor;
             this.speed = this.normalSpeed;
             this.dir = startDir || {x: 1, y: 0};
             this._decisionCooldown = 0;
@@ -521,37 +530,8 @@
         ];
     }
 
-    // --- Audio Control ---
-    function activateFrightenedMode() {
-        ghosts.forEach(g => g.makeFrightened());
-        
-        // Switch Music
-        if (!isFrightenedMode) {
-            isFrightenedMode = true;
-            bgMusic.pause();
-            frightenedMusic.currentTime = 0;
-            frightenedMusic.play().catch(e => console.log("Audio Error:", e));
-        }
-    }
-
-    function checkFrightenedMode() {
-        // If mode is active but no ghosts are frightened, revert music
-        if (isFrightenedMode) {
-            const anyFrightened = ghosts.some(g => g.isFrightened);
-            if (!anyFrightened) {
-                isFrightenedMode = false;
-                frightenedMusic.pause();
-                if (gameRunning && !isPaused) {
-                    bgMusic.play().catch(e => console.log("Audio Error:", e));
-                }
-            }
-        }
-    }
-
     function startLevel(lvl) {
         currentLevel = lvl;
-        isFrightenedMode = false;
-        frightenedMusic.pause();
         
         bgMusic.pause();
         if (currentLevel === 1) bgMusic.src = ASSET_PATHS.music1;
@@ -607,13 +587,10 @@
         } else {
             isPaused = true;
             bgMusic.pause();
-            frightenedMusic.pause();
             setTimeout(() => {
                 resetEntities();
                 isPaused = false;
-                // Resume appropriate music
-                if (isFrightenedMode) frightenedMusic.play();
-                else bgMusic.play();
+                bgMusic.play();
             }, 1500);
         }
     }
@@ -630,7 +607,6 @@
             if (currentLevel < MAX_LEVELS) {
                 isPaused = true;
                 bgMusic.pause();
-                frightenedMusic.pause();
                 setTimeout(() => {
                     startLevel(currentLevel + 1);
                 }, 1000);
@@ -643,7 +619,6 @@
     function gameOver(msg) {
         gameRunning = false;
         bgMusic.pause();
-        frightenedMusic.pause();
 
         if(score > highScore) {
             highScore = score;
@@ -671,8 +646,6 @@
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        checkFrightenedMode();
-
         // Update
         if (pacman) pacman.update();
         if (ghosts) ghosts.forEach(g => {
